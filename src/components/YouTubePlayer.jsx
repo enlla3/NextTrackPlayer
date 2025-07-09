@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import YouTube from "react-youtube";
 import Spinner from "./Spinner";
 
@@ -8,6 +8,9 @@ export default function YouTubePlayer({ artist, title, onEnded }) {
 	const [idLoading, setIdLoading] = useState(true);
 	const [playerReady, setPlayerReady] = useState(false);
 
+	// simple in‐memory cache: { "Artist|||Title": "videoId", … }
+	const cacheRef = useRef({});
+
 	useEffect(() => {
 		let cancelled = false;
 		setVideoId(null);
@@ -15,19 +18,38 @@ export default function YouTubePlayer({ artist, title, onEnded }) {
 		setIdLoading(true);
 		setPlayerReady(false);
 
+		const key = `${artist}|||${title}`;
+		// if we already fetched this track => short-circuit
+		if (cacheRef.current[key]) {
+			setVideoId(cacheRef.current[key]);
+			setIdLoading(false);
+			return;
+		}
+
 		(async () => {
 			try {
 				const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY;
 				const q = encodeURIComponent(`${artist} ${title}`);
-				const res = await fetch(
+				// only request the videoId field
+				const url =
 					`https://www.googleapis.com/youtube/v3/search` +
-						`?part=snippet&q=${q}&key=${apiKey}&type=video&maxResults=1`
-				);
+					`?part=snippet` +
+					`&type=video` +
+					`&maxResults=1` +
+					`&fields=items(id/videoId)` +
+					`&key=${apiKey}` +
+					`&q=${q}`;
+
+				const res = await fetch(url);
 				if (!res.ok) throw new Error(`YT status ${res.status}`);
 				const data = await res.json();
 				const vid = data.items?.[0]?.id?.videoId;
 				if (!vid) throw new Error("No video found");
-				if (!cancelled) setVideoId(vid);
+
+				if (!cancelled) {
+					cacheRef.current[key] = vid;
+					setVideoId(vid);
+				}
 			} catch (e) {
 				if (!cancelled) setError(e.message);
 			} finally {

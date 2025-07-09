@@ -1,4 +1,3 @@
-// babel.config.cjs
 module.exports = {
 	presets: [
 		// target current Node for Jest

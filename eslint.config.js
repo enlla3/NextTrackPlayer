@@ -1,21 +1,19 @@
 export default defineConfig([
 	globalIgnores(["dist"]),
 
-	// 1) Treat config, setup & mocks as Node scripts:
 	{
 		files: [
 			"babel.config.cjs",
 			"jest.config.cjs",
 			"vite.config.js",
 			"src/setupTests.js",
-			"__mocks__/**/*.js", // << add this line
+			"__mocks__/**/*.js",
 		],
 		languageOptions: {
-			env: { node: true }, // enables module, require, etc.
+			env: { node: true },
 		},
 	},
 
-	// 2) Jest test files...
 	{
 		files: [
 			"**/__tests__/**/*.[jt]s?(x)",
@@ -26,7 +24,6 @@ export default defineConfig([
 		},
 	},
 
-	// 3) Your normal JS/React rules...
 	{
 		files: ["**/*.{js,jsx}"],
 		extends: [
