@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { ToastContainer, toast } from "react-toastify";
 import NavBar from "../components/NavBar";
 import Spinner from "../components/Spinner";
 import TrackForm from "../components/TrackForm";
@@ -14,15 +15,28 @@ export default function App() {
 	const [currentIndex, setCurrentIndex] = useState(0);
 	const [loading, setLoading] = useState(false);
 	const [prefetching, setPrefetching] = useState(false);
+
+	// retain preferences across looping prefetches
 	const prefsRef = useRef(query?.preferences || {});
 
+	// single controller for all fetches in this session
+	const abortCtrlRef = useRef(new AbortController());
+
 	const handleReset = () => {
+		// 1) cancel any on-going fetches
+		abortCtrlRef.current.abort();
+
+		// 2) clear everything
 		sessionStorage.removeItem("nt-query");
 		setQuery(null);
 		setRecs([]);
 		setCurrentIndex(0);
 		prefsRef.current = {};
+		setLoading(false);
 		setPrefetching(false);
+
+		// 3) new controller for next session
+		abortCtrlRef.current = new AbortController();
 	};
 
 	const handleSubmit = async (newQuery) => {
@@ -36,6 +50,7 @@ export default function App() {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(newQuery),
+				signal: abortCtrlRef.current.signal, // ← wire up abort
 			});
 			if (!resp.ok) throw new Error(`Status ${resp.status}`);
 			const { recommended_tracks } = await resp.json();
@@ -43,8 +58,13 @@ export default function App() {
 			setCurrentIndex(0);
 			startPrefetchLoop(recommended_tracks);
 		} catch (err) {
-			console.error("Initial fetch error:", err);
-			alert("Failed to fetch recommendations.");
+			if (err.name === "AbortError") {
+				// aborted by reset, no need to toast
+			} else {
+				console.error("Initial fetch error:", err);
+				toast.error("Failed to fetch recommendations.");
+				handleReset();
+			}
 		} finally {
 			setLoading(false);
 		}
@@ -57,7 +77,7 @@ export default function App() {
 				title: t.title,
 				artist: t.artist,
 			}));
-			if (seeds.length === 0) {
+			if (!seeds.length) {
 				setPrefetching(false);
 				return;
 			}
@@ -68,17 +88,20 @@ export default function App() {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
+					signal: abortCtrlRef.current.signal, // wiring up abort
 				});
 				if (!resp.ok) throw new Error(`Status ${resp.status}`);
 				const { recommended_tracks: nextBatch } = await resp.json();
-				if (!Array.isArray(nextBatch) || nextBatch.length === 0) {
+				if (!nextBatch.length) {
 					setPrefetching(false);
 					return;
 				}
 				setRecs((old) => [...old, ...nextBatch]);
 				await loop(nextBatch);
 			} catch (err) {
-				console.error("Prefetch loop error:", err);
+				if (err.name !== "AbortError") {
+					console.error("Prefetch loop error:", err);
+				}
 				setPrefetching(false);
 			}
 		})(batch);
@@ -95,11 +118,11 @@ export default function App() {
 		<div className="flex flex-col min-h-screen bg-amber-50">
 			<NavBar onReset={handleReset} />
 
-			<div className="flex flex-1 flex-col lg:flex-row gap-y-6 lg:gap-x-6 overflow-hidden">
+			<div className="flex flex-1 flex-col lg:flex-row gap-y-0 lg:gap-y-6 lg:gap-x-6 overflow-hidden">
 				{/* Main area */}
-				<main className="flex-1 p-6 overflow-auto">
+				<main className="flex-1 p-4 max-h-fit min-h-60 lg:max-h-full lg:min-h-0 lg:p-6 overflow-auto relative">
 					{loading ? (
-						<div className="flex items-center justify-center h-full">
+						<div className="absolute inset-0 flex items-center justify-center">
 							<Spinner size={8} role="status" />
 						</div>
 					) : !query ? (
@@ -153,8 +176,8 @@ export default function App() {
 					)}
 				</main>
 
-				{/* Sidebar */}
-				<aside className="w-full lg:w-80 bg-white shadow-inner p-4 overflow-y-auto">
+				{/* Recommendation list */}
+				<aside className="flex-1 w-full lg:flex-none lg:w-80 bg-white shadow-inner pt-0 px-4 pb-4 lg:p-4 overflow-y-auto">
 					<h2 className="text-xl font-semibold mb-3 text-amber-900">
 						All Recommendations
 					</h2>
@@ -176,7 +199,6 @@ export default function App() {
 							</li>
 						))}
 					</ul>
-
 					{prefetching && (
 						<div className="flex items-center justify-center mt-4 space-x-2">
 							<Spinner size={6} />
@@ -187,6 +209,15 @@ export default function App() {
 					)}
 				</aside>
 			</div>
+
+			<ToastContainer
+				position="top-center"
+				autoClose={2000}
+				hideProgressBar={false}
+				newestOnTop={false}
+				closeOnClick
+				draggable
+			/>
 		</div>
 	);
 }
