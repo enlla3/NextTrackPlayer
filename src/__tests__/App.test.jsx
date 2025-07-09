@@ -1,3 +1,6 @@
+jest.mock("../config", () => ({
+	API_BASE_URL: "https://nexttrack.onrender.com/api",
+}));
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import App from "../pages/App";
 

@@ -1,44 +1,59 @@
-// src/components/YouTubePlayer.jsx
 import { useEffect, useRef, useState } from "react";
 import YouTube from "react-youtube";
-import { API_BASE_URL } from "../config";
 import Spinner from "./Spinner";
 
 export default function YouTubePlayer({ artist, title, onEnded }) {
 	const [videoId, setVideoId] = useState(null);
 	const [error, setError] = useState(null);
-	const [loading, setLoading] = useState(true);
+	const [idLoading, setIdLoading] = useState(true);
 	const [playerReady, setPlayerReady] = useState(false);
+
+	// simple in‐memory cache: { "Artist|||Title": "videoId", … }
 	const cacheRef = useRef({});
 
 	useEffect(() => {
 		let cancelled = false;
 		setVideoId(null);
 		setError(null);
-		setLoading(true);
+		setIdLoading(true);
 		setPlayerReady(false);
 
 		const key = `${artist}|||${title}`;
+		// if we already fetched this track => short-circuit
 		if (cacheRef.current[key]) {
 			setVideoId(cacheRef.current[key]);
-			setLoading(false);
+			setIdLoading(false);
 			return;
 		}
 
 		(async () => {
 			try {
+				const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY;
 				const q = encodeURIComponent(`${artist} ${title}`);
-				const resp = await fetch(`${API_BASE_URL}/yt-search?q=${q}`);
-				if (!resp.ok) throw new Error(`Status ${resp.status}`);
-				const data = await resp.json();
-				if (!data.videoId) throw new Error("No video found");
+				// only request the videoId field
+				const url =
+					`https://www.googleapis.com/youtube/v3/search` +
+					`?part=snippet` +
+					`&type=video` +
+					`&maxResults=1` +
+					`&fields=items(id/videoId)` +
+					`&key=${apiKey}` +
+					`&q=${q}`;
 
-				cacheRef.current[key] = data.videoId;
-				if (!cancelled) setVideoId(data.videoId);
+				const res = await fetch(url);
+				if (!res.ok) throw new Error(`YT status ${res.status}`);
+				const data = await res.json();
+				const vid = data.items?.[0]?.id?.videoId;
+				if (!vid) throw new Error("No video found");
+
+				if (!cancelled) {
+					cacheRef.current[key] = vid;
+					setVideoId(vid);
+				}
 			} catch (e) {
 				if (!cancelled) setError(e.message);
 			} finally {
-				if (!cancelled) setLoading(false);
+				if (!cancelled) setIdLoading(false);
 			}
 		})();
 
@@ -49,7 +64,7 @@ export default function YouTubePlayer({ artist, title, onEnded }) {
 
 	if (error) {
 		return (
-			<div className="absolute inset-0 flex items-center justify-center bg-black/20">
+			<div className="absolute inset-0 flex items-center justify-center bg-black/10">
 				<p className="text-red-500">Video error: {error}</p>
 			</div>
 		);
@@ -57,9 +72,9 @@ export default function YouTubePlayer({ artist, title, onEnded }) {
 
 	return (
 		<>
-			{(loading || !playerReady) && (
-				<div className="absolute inset-0 flex items-center justify-center bg-black/20">
-					<Spinner size={6} color="text-white" />
+			{(idLoading || !playerReady) && (
+				<div className="absolute inset-0 flex items-center justify-center bg-black/10">
+					<Spinner size={8} color="text-white" />
 				</div>
 			)}
 
