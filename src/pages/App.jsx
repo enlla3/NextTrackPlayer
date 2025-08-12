@@ -4,11 +4,11 @@ import FindSongsForm from "../components/FindSongsForm";
 import NavBar from "../components/NavBar";
 import RecommendationList from "../components/RecommendationList";
 import ResultsList from "../components/ResultsList";
+import SelectionModal from "../components/SelectionModal";
 import Spinner from "../components/Spinner";
 import TrackForm from "../components/TrackForm";
 import YouTubePlayer from "../components/YouTubePlayer";
 import { API_BASE_URL } from "../config";
-import { prefetchVideoIds } from "../lib/videoCache";
 
 export default function App() {
 	// screens: 'home' (two forms), 'player' (player + list)
@@ -33,28 +33,25 @@ export default function App() {
 	// full-screen overlay
 	const [overlay, setOverlay] = useState({ show: false, text: "" });
 
-	const abortRef = useRef(null);
+	// selection modal (recommendation flow)
+	const [showSelections, setShowSelections] = useState(false);
 
+	// internal refs
+	const abortRef = useRef(null);
+	const recsRef = useRef(recs);
+	useEffect(() => {
+		recsRef.current = recs;
+	}, [recs]);
+
+	// prefetch control (recommendation flow)
+	const prefetchCtl = useRef({ cancel: true });
+
+	// Active list for player
 	const tracks = useMemo(
 		() => (mode === "find" ? findResults : recs),
 		[mode, recs, findResults]
 	);
 	const currentTrack = tracks[currentIndex] || null;
-
-	// ...
-	useEffect(() => {
-		async function fetcher(title, artist) {
-			const q = `${title} ${artist} official audio`;
-			const url = `${API_BASE_URL}/yt-search?q=${encodeURIComponent(q)}`;
-			const resp = await fetch(url);
-			if (!resp.ok) throw new Error("yt-search failed");
-			const data = await resp.json();
-			return data?.videoId ?? null;
-		}
-		if (tracks?.length) {
-			prefetchVideoIds(tracks, fetcher);
-		}
-	}, [tracks]);
 
 	// ===== Recommendation flow =====
 	const handleRecommend = async (payload) => {
@@ -82,11 +79,73 @@ export default function App() {
 			setCurrentIndex(0);
 			setPlaying(true);
 			setScreen("player");
+
+			// kick off background preloading of more recs in batches of 3
+			startPrefetchRecs(payload.preferences || {});
 		} catch (e) {
 			if (e.name !== "AbortError") toast.error(e.message || "Error");
 		} finally {
 			setOverlay({ show: false, text: "" });
 		}
+	};
+
+	// Prefetch 3-by-3 more recommendations based on the latest appended track
+	const startPrefetchRecs = (prefs) => {
+		prefetchCtl.current.cancel = false;
+		void prefetchLoop(prefs);
+	};
+
+	const stopPrefetchRecs = () => {
+		prefetchCtl.current.cancel = true;
+	};
+
+	const prefetchLoop = async (prefs) => {
+		const PREFETCH_TARGET = 30; // stop when we have ~30 total
+		const SLEEP = 500; // small delay between batches
+
+		while (!prefetchCtl.current.cancel) {
+			// stop if enough items or no seed to expand
+			const list = recsRef.current;
+			if (!list.length || list.length >= PREFETCH_TARGET) break;
+
+			const seed = list[list.length - 1]; // expand from the newest item
+			try {
+				const batch = await fetchRecBatchFromSeed(seed, prefs);
+				if (!batch.length) break;
+
+				// append unique items
+				setRecs((prev) => {
+					const seen = new Set(
+						prev.map((t) => `${t.artist}|||${t.title}`)
+					);
+					const unique = batch.filter(
+						(t) => !seen.has(`${t.artist}|||${t.title}`)
+					);
+					return unique.length ? [...prev, ...unique] : prev;
+				});
+			} catch {
+				break;
+			}
+
+			// pause a bit to be gentle on the API
+			await new Promise((r) => setTimeout(r, SLEEP));
+		}
+	};
+
+	const fetchRecBatchFromSeed = async (seedTrack, prefs) => {
+		const payload = {
+			track_ids: [{ title: seedTrack.title, artist: seedTrack.artist }],
+			preferences: { ...(prefs || {}) },
+		};
+		const resp = await fetch(`${API_BASE_URL}/recommend`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload),
+		});
+		if (!resp.ok) throw new Error("prefetch failed");
+		const data = await resp.json();
+		// backend returns top 3 — keep exactly 3 per batch
+		return (data.recommended_tracks || []).slice(0, 3);
 	};
 
 	// ===== Find flow =====
@@ -96,6 +155,7 @@ export default function App() {
 			setMode("find");
 			setRecs([]);
 			setQuery(null);
+			stopPrefetchRecs();
 
 			const resp = await fetch(`${API_BASE_URL}/find-tracks`, {
 				method: "POST",
@@ -155,11 +215,12 @@ export default function App() {
 		setPlaying(true);
 	};
 	const next = () => {
-		if (tracks.length === 0) return;
-		setCurrentIndex((i) => (i + 1 >= tracks.length ? i : i + 1));
+		const list = tracks;
+		if (!list.length) return;
+		setCurrentIndex((i) => (i + 1 >= list.length ? i : i + 1));
 	};
 	const prev = () => {
-		if (tracks.length === 0) return;
+		if (!tracks.length) return;
 		setCurrentIndex((i) => (i - 1 < 0 ? 0 : i - 1));
 	};
 
@@ -174,12 +235,23 @@ export default function App() {
 		setPlaying(false);
 		setQuery(null);
 		setOverlay({ show: false, text: "" });
+		stopPrefetchRecs();
 	};
+
+	// stop prefetch if we ever leave recommendations mode
+	useEffect(() => {
+		if (mode !== "recommend") stopPrefetchRecs();
+	}, [mode]);
 
 	return (
 		<div className="flex flex-col min-h-screen bg-amber-50">
-			{/* keep your existing NavBar; only onReset is required here */}
-			<NavBar onReset={handleReset} />
+			<NavBar
+				onReset={handleReset}
+				hasRecs={mode === "recommend" && tracks.length > 0}
+				onShowSelections={() => setShowSelections(true)}
+				seedCount={query?.track_ids?.length || 0}
+				query={query}
+			/>
 
 			{/* HOME: two forms, no player */}
 			{screen === "home" && (
@@ -267,6 +339,13 @@ export default function App() {
 					</aside>
 				</div>
 			)}
+
+			{/* Recommendations flow: show seeds/preferences */}
+			<SelectionModal
+				isOpen={showSelections}
+				onClose={() => setShowSelections(false)}
+				query={query}
+			/>
 
 			{/* Full-screen loading overlay using your Spinner */}
 			{overlay.show && (
