@@ -1,81 +1,68 @@
-// src/components/YouTubePlayer.jsx
 import { useEffect, useRef, useState } from "react";
-import YouTube from "react-youtube";
 import { API_BASE_URL } from "../config";
-import Spinner from "./Spinner";
 
-export default function YouTubePlayer({ artist, title, onEnded }) {
+/**
+ * Props:
+ *  - track: { title, artist }
+ *  - playing: boolean
+ *  - onEnd?: () => void
+ */
+export default function YouTubePlayer({ track, playing, onEnd }) {
 	const [videoId, setVideoId] = useState(null);
-	const [error, setError] = useState(null);
-	const [loading, setLoading] = useState(true);
-	const [playerReady, setPlayerReady] = useState(false);
-	const cacheRef = useRef({});
+	const reqIdRef = useRef(0); // guard against out-of-order results
 
 	useEffect(() => {
-		let cancelled = false;
+		if (!track?.title || !track?.artist) return;
+
+		const myReqId = ++reqIdRef.current;
 		setVideoId(null);
-		setError(null);
-		setLoading(true);
-		setPlayerReady(false);
 
-		const key = `${artist}|||${title}`;
-		if (cacheRef.current[key]) {
-			setVideoId(cacheRef.current[key]);
-			setLoading(false);
-			return;
-		}
-
+		const controller = new AbortController();
 		(async () => {
 			try {
-				const q = encodeURIComponent(`${artist} ${title}`);
-				const resp = await fetch(`${API_BASE_URL}/yt-search?q=${q}`);
-				if (!resp.ok) throw new Error(`Status ${resp.status}`);
+				const resp = await fetch(`${API_BASE_URL}/yt-search`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						title: track.title,
+						artist: track.artist,
+					}),
+					signal: controller.signal,
+				});
+				if (!resp.ok) throw new Error("YouTube search failed");
 				const data = await resp.json();
-				if (!data.videoId) throw new Error("No video found");
 
-				cacheRef.current[key] = data.videoId;
-				if (!cancelled) setVideoId(data.videoId);
+				// only the latest in-flight request can update the player
+				if (myReqId !== reqIdRef.current) return;
+
+				setVideoId(data?.videoId || null);
 			} catch (e) {
-				if (!cancelled) setError(e.message);
-			} finally {
-				if (!cancelled) setLoading(false);
+				if (e.name !== "AbortError") setVideoId(null);
 			}
 		})();
 
-		return () => {
-			cancelled = true;
-		};
-	}, [artist, title]);
-
-	if (error) {
-		return (
-			<div className="absolute inset-0 flex items-center justify-center bg-black/20">
-				<p className="text-red-500">Video error: {error}</p>
-			</div>
-		);
-	}
+		return () => controller.abort();
+	}, [track?.title, track?.artist]);
 
 	return (
-		<>
-			{(loading || !playerReady) && (
-				<div className="absolute inset-0 flex items-center justify-center bg-black/20">
-					<Spinner size={6} color="text-white" />
+		<div className="w-full h-full">
+			{videoId ? (
+				<iframe
+					key={videoId} // force-remount on new video
+					className="w-full h-full rounded-xl shadow bg-black"
+					src={`https://www.youtube.com/embed/${videoId}?autoplay=${
+						playing ? 1 : 0
+					}&enablejsapi=1&rel=0&modestbranding=1`}
+					title={`${track.title} — ${track.artist}`}
+					frameBorder="0"
+					allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+					allowFullScreen
+				/>
+			) : (
+				<div className="w-full h-full rounded-xl shadow grid place-items-center bg-white text-stone-500">
+					Finding a playable video…
 				</div>
 			)}
-
-			{videoId && (
-				<YouTube
-					videoId={videoId}
-					className="w-full h-full"
-					opts={{
-						width: "100%",
-						height: "100%",
-						playerVars: { autoplay: 1, controls: 1 },
-					}}
-					onReady={() => setPlayerReady(true)}
-					onEnd={onEnded}
-				/>
-			)}
-		</>
+		</div>
 	);
 }

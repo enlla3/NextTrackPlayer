@@ -4,13 +4,16 @@ import FindSongsForm from "../components/FindSongsForm";
 import NavBar from "../components/NavBar";
 import RecommendationList from "../components/RecommendationList";
 import ResultsList from "../components/ResultsList";
-import SelectionModal from "../components/SelectionModal";
+import Spinner from "../components/Spinner";
 import TrackForm from "../components/TrackForm";
 import YouTubePlayer from "../components/YouTubePlayer";
 import { API_BASE_URL } from "../config";
 
 export default function App() {
-	// which flow is active: 'idle' | 'recommend' | 'find'
+	// screens: 'home' (two forms), 'player' (player + list)
+	const [screen, setScreen] = useState("home");
+
+	// flows: 'idle' | 'recommend' | 'find'
 	const [mode, setMode] = useState("idle");
 
 	// recommendation flow
@@ -21,18 +24,16 @@ export default function App() {
 	const [findResults, setFindResults] = useState([]);
 	const [findReq, setFindReq] = useState(null);
 	const [findPage, setFindPage] = useState(1);
-	const [findLoading, setFindLoading] = useState(false);
 
-	// shared player state
+	// player state
 	const [currentIndex, setCurrentIndex] = useState(0);
 	const [playing, setPlaying] = useState(false);
-	const [loading, setLoading] = useState(false);
+
+	// full-screen overlay
+	const [overlay, setOverlay] = useState({ show: false, text: "" });
+
 	const abortRef = useRef(null);
 
-	// modal (only meaningful for recommend flow)
-	const [showSelections, setShowSelections] = useState(false);
-
-	// active list for the player
 	const tracks = useMemo(
 		() => (mode === "find" ? findResults : recs),
 		[mode, recs, findResults]
@@ -42,7 +43,7 @@ export default function App() {
 	// ===== Recommendation flow =====
 	const handleRecommend = async (payload) => {
 		try {
-			setLoading(true);
+			setOverlay({ show: true, text: "Getting recommendations…" });
 			setMode("recommend");
 			setFindResults([]);
 			setFindReq(null);
@@ -64,17 +65,18 @@ export default function App() {
 			setRecs(data.recommended_tracks || []);
 			setCurrentIndex(0);
 			setPlaying(true);
+			setScreen("player");
 		} catch (e) {
 			if (e.name !== "AbortError") toast.error(e.message || "Error");
 		} finally {
-			setLoading(false);
+			setOverlay({ show: false, text: "" });
 		}
 	};
 
 	// ===== Find flow =====
 	const handleFind = async (body) => {
 		try {
-			setFindLoading(true);
+			setOverlay({ show: true, text: "Finding songs…" });
 			setMode("find");
 			setRecs([]);
 			setQuery(null);
@@ -96,10 +98,11 @@ export default function App() {
 			setFindPage(1);
 			setCurrentIndex(0);
 			setPlaying(true);
+			setScreen("player");
 		} catch (e) {
 			toast.error(e.message || "Error");
 		} finally {
-			setFindLoading(false);
+			setOverlay({ show: false, text: "" });
 		}
 	};
 
@@ -107,7 +110,7 @@ export default function App() {
 		if (!findReq) return;
 		const nextPage = findPage + 1;
 		try {
-			setFindLoading(true);
+			setOverlay({ show: true, text: "Finding more songs…" });
 			const resp = await fetch(`${API_BASE_URL}/find-tracks`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -123,14 +126,10 @@ export default function App() {
 			);
 			setFindResults((prev) => [...prev, ...newOnes]);
 			setFindPage(nextPage);
-			if (tracks.length === 0 && newOnes.length > 0) {
-				setCurrentIndex(0);
-				setPlaying(true);
-			}
 		} catch (e) {
 			toast.error(e.message || "Error");
 		} finally {
-			setFindLoading(false);
+			setOverlay({ show: false, text: "" });
 		}
 	};
 
@@ -150,6 +149,7 @@ export default function App() {
 
 	// ===== Reset app =====
 	const handleReset = () => {
+		setScreen("home");
 		setMode("idle");
 		setRecs([]);
 		setFindResults([]);
@@ -157,35 +157,32 @@ export default function App() {
 		setCurrentIndex(0);
 		setPlaying(false);
 		setQuery(null);
+		setOverlay({ show: false, text: "" });
 	};
 
 	return (
 		<div className="flex flex-col min-h-screen bg-amber-50">
-			<NavBar
-				onReset={handleReset}
-				// Only show "My Current Selections" when the recommendation flow is active
-				hasRecs={mode === "recommend" && tracks.length > 0}
-				onShowSelections={() => setShowSelections(true)}
-				seedCount={query?.track_ids?.length || 0}
-				query={query}
-			/>
+			{/* keep your existing NavBar; only onReset is required here */}
+			<NavBar onReset={handleReset} />
 
-			{/* Forms section — always visible, player appears only after a search */}
-			<section className="p-4 lg:p-6 space-y-6">
-				<div className="bg-white rounded-2xl shadow p-4 lg:p-6">
-					<h2 className="text-xl font-semibold text-amber-900 mb-3">
-						Get Recommendations
-					</h2>
-					<TrackForm onSubmit={handleRecommend} loading={loading} />
-				</div>
+			{/* HOME: two forms, no player */}
+			{screen === "home" && (
+				<section className="p-4 lg:p-6 space-y-6">
+					<div className="bg-white rounded-2xl shadow p-4 lg:p-6">
+						<h2 className="text-xl font-semibold text-amber-900 mb-3">
+							Get Recommendations
+						</h2>
+						<TrackForm onSubmit={handleRecommend} />
+					</div>
 
-				<div className="bg-white rounded-2xl shadow p-4 lg:p-6">
-					<FindSongsForm onFind={handleFind} loading={findLoading} />
-				</div>
-			</section>
+					<div className="bg-white rounded-2xl shadow p-4 lg:p-6">
+						<FindSongsForm onFind={handleFind} />
+					</div>
+				</section>
+			)}
 
-			{/* Player + list — render only when we have tracks */}
-			{tracks.length > 0 && (
+			{/* PLAYER PAGE: player + list only */}
+			{screen === "player" && tracks.length > 0 && (
 				<div className="flex flex-1 flex-col lg:flex-row gap-y-0 lg:gap-y-6 lg:gap-x-6 overflow-hidden">
 					{/* Player */}
 					<main className="flex-1 p-4 max-h-fit min-h-60 lg:max-h-full lg:min-h-0 lg:p-6 overflow-auto relative">
@@ -225,7 +222,7 @@ export default function App() {
 						</div>
 					</main>
 
-					{/* List — right on lg+, bottom on mobile */}
+					{/* List (right on lg+, bottom on mobile) */}
 					<aside className="flex-1 w-full lg:flex-none lg:w-80 bg-white shadow-inner pt-0 px-4 pb-4 lg:p-4 overflow-y-auto">
 						{mode === "find" ? (
 							<>
@@ -239,11 +236,8 @@ export default function App() {
 									<button
 										onClick={handleFindMore}
 										className="ml-2 px-3 py-1.5 rounded bg-amber-200 text-amber-900 hover:bg-amber-300"
-										disabled={findLoading}
 									>
-										{findLoading
-											? "Finding..."
-											: "Find more"}
+										Find more
 									</button>
 								</div>
 							</>
@@ -258,12 +252,17 @@ export default function App() {
 				</div>
 			)}
 
-			{/* Only meaningful for recommendation flow */}
-			<SelectionModal
-				isOpen={showSelections}
-				onClose={() => setShowSelections(false)}
-				query={query}
-			/>
+			{/* Full-screen loading overlay using your Spinner */}
+			{overlay.show && (
+				<div className="fixed inset-0 z-[100] grid place-items-center bg-black/60">
+					<div className="flex flex-col items-center gap-4">
+						<Spinner />
+						<p className="text-white text-lg font-semibold">
+							{overlay.text}
+						</p>
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }
