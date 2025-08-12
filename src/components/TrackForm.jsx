@@ -6,39 +6,46 @@ export default function TrackForm({ onSubmit }) {
 		favorite_artists: "",
 		preferred_genres: "",
 		preferred_languages: "",
+		same_artist_only: false, // ← default off
 	});
 
 	const handleTrackChange = (idx, field, val) => {
-		const t = [...tracks];
-		t[idx][field] = val;
-		setTracks(t);
+		setTracks((prev) => {
+			const next = [...prev];
+			next[idx] = { ...next[idx], [field]: val };
+			return next;
+		});
+	};
+
+	const addTrack = () =>
+		setTracks((prev) => [...prev, { title: "", artist: "" }]);
+
+	const removeTrack = (idx) =>
+		setTracks((prev) => prev.filter((_, i) => i !== idx));
+
+	const parseList = (s) =>
+		s
+			.split(",")
+			.map((x) => x.trim())
+			.filter(Boolean);
+
+	const handleSubmit = (e) => {
+		e.preventDefault();
+		const payload = {
+			track_ids: tracks.filter((t) => t.title && t.artist),
+			preferences: {
+				favorite_artists: parseList(prefs.favorite_artists),
+				preferred_genres: parseList(prefs.preferred_genres),
+				preferred_languages: parseList(prefs.preferred_languages),
+				same_artist_only: !!prefs.same_artist_only, // ← wired to checkbox
+			},
+		};
+		onSubmit(payload);
 	};
 
 	return (
-		<form
-			onSubmit={(e) => {
-				e.preventDefault();
-				const payload = {
-					track_ids: tracks.filter((t) => t.title && t.artist),
-					preferences: {
-						favorite_artists: prefs.favorite_artists
-							.split(",")
-							.map((s) => s.trim())
-							.filter(Boolean),
-						preferred_genres: prefs.preferred_genres
-							.split(",")
-							.map((s) => s.trim())
-							.filter(Boolean),
-						preferred_languages: prefs.preferred_languages
-							.split(",")
-							.map((s) => s.trim())
-							.filter(Boolean),
-					},
-				};
-				onSubmit(payload);
-			}}
-			className="space-y-4 max-w-xl mx-auto"
-		>
+		<form onSubmit={handleSubmit} className="space-y-4 max-w-xl mx-auto">
+			{/* Tracks input list */}
 			{tracks.map((t, i) => (
 				<div
 					key={i}
@@ -60,28 +67,30 @@ export default function TrackForm({ onSubmit }) {
 							handleTrackChange(i, "artist", e.target.value)
 						}
 					/>
-					<button
-						type="button"
-						className="text-red-500 self-start md:self-center"
-						onClick={() =>
-							setTracks((ts) => ts.filter((_, j) => j !== i))
-						}
-					>
-						✕
-					</button>
+					{i > 0 && (
+						<button
+							type="button"
+							onClick={() => removeTrack(i)}
+							className="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300"
+							aria-label={`Remove track ${i + 1}`}
+						>
+							Remove
+						</button>
+					)}
 				</div>
 			))}
 
-			<button
-				type="button"
-				className="text-blue-600"
-				onClick={() =>
-					setTracks((ts) => [...ts, { title: "", artist: "" }])
-				}
-			>
-				+ Add track
-			</button>
+			<div>
+				<button
+					type="button"
+					onClick={addTrack}
+					className="px-4 py-2 rounded bg-amber-200 text-amber-900 hover:bg-amber-300"
+				>
+					Add Track
+				</button>
+			</div>
 
+			{/* Preferences */}
 			<div className="space-y-2">
 				<input
 					className="border p-2 w-full rounded"
@@ -116,6 +125,25 @@ export default function TrackForm({ onSubmit }) {
 						}))
 					}
 				/>
+
+				{/* Same-artist checkbox */}
+				<div className="flex items-center space-x-2">
+					<input
+						id="sameArtistOnly"
+						type="checkbox"
+						className="h-4 w-4"
+						checked={!!prefs.same_artist_only}
+						onChange={(e) =>
+							setPrefs((p) => ({
+								...p,
+								same_artist_only: e.target.checked,
+							}))
+						}
+					/>
+					<label htmlFor="sameArtistOnly" className="text-sm">
+						Same artist only
+					</label>
+				</div>
 			</div>
 
 			<button className="bg-amber-900 text-white px-4 py-2 rounded w-full md:w-auto">
