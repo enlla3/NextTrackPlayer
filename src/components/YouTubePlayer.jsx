@@ -9,7 +9,7 @@ import { API_BASE_URL } from "../config";
  */
 export default function YouTubePlayer({ track, playing, onEnd }) {
 	const [videoId, setVideoId] = useState(null);
-	const reqIdRef = useRef(0); // guard against out-of-order results
+	const reqIdRef = useRef(0);
 
 	useEffect(() => {
 		if (!track?.title || !track?.artist) return;
@@ -20,19 +20,17 @@ export default function YouTubePlayer({ track, playing, onEnd }) {
 		const controller = new AbortController();
 		(async () => {
 			try {
-				const resp = await fetch(`${API_BASE_URL}/yt-search`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						title: track.title,
-						artist: track.artist,
-					}),
-					signal: controller.signal,
-				});
+				// Build a solid query to reduce random videos
+				const q = `${track.title} ${track.artist} official audio`;
+				const url = `${API_BASE_URL}/yt-search?q=${encodeURIComponent(
+					q
+				)}`;
+
+				const resp = await fetch(url, { signal: controller.signal });
 				if (!resp.ok) throw new Error("YouTube search failed");
 				const data = await resp.json();
 
-				// only the latest in-flight request can update the player
+				// Only the latest in-flight request can update state
 				if (myReqId !== reqIdRef.current) return;
 
 				setVideoId(data?.videoId || null);
@@ -48,7 +46,7 @@ export default function YouTubePlayer({ track, playing, onEnd }) {
 		<div className="w-full h-full">
 			{videoId ? (
 				<iframe
-					key={videoId} // force-remount on new video
+					key={videoId}
 					className="w-full h-full rounded-xl shadow bg-black"
 					src={`https://www.youtube.com/embed/${videoId}?autoplay=${
 						playing ? 1 : 0
