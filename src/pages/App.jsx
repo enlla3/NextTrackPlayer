@@ -1,236 +1,267 @@
-import { useRef, useState } from "react";
-import { ToastContainer, toast } from "react-toastify";
+import { useMemo, useRef, useState } from "react";
+import { toast } from "react-toastify";
+import FindSongsForm from "../components/FindSongsForm"; // ← NEW
 import NavBar from "../components/NavBar";
+import RecommendationList from "../components/RecommendationList";
+import ResultsList from "../components/ResultsList";
 import SelectionModal from "../components/SelectionModal";
-import Spinner from "../components/Spinner";
 import TrackForm from "../components/TrackForm";
 import YouTubePlayer from "../components/YouTubePlayer";
 import { API_BASE_URL } from "../config";
 
 export default function App() {
-	const [query, setQuery] = useState(() => {
-		const saved = sessionStorage.getItem("nt-query");
-		return saved ? JSON.parse(saved) : null;
-	});
+	// recommendation state
 	const [recs, setRecs] = useState([]);
+	const [query, setQuery] = useState(null);
 	const [currentIndex, setCurrentIndex] = useState(0);
 	const [loading, setLoading] = useState(false);
-	const [prefetching, setPrefetching] = useState(false);
+	const [playing, setPlaying] = useState(false);
+	const abortRef = useRef(null);
+
+	// modal
 	const [showSelections, setShowSelections] = useState(false);
 
-	// retain preferences across looping prefetches
-	const prefsRef = useRef(query?.preferences || {});
+	// find-songs state
+	const [mode, setMode] = useState("idle"); // 'idle' | 'recommend' | 'find'
+	const [findResults, setFindResults] = useState([]);
+	const [findReq, setFindReq] = useState(null); // {title|artist, language}
+	const [findPage, setFindPage] = useState(1);
+	const [findLoading, setFindLoading] = useState(false);
 
-	// single controller for all fetches in this session
-	const abortCtrlRef = useRef(new AbortController());
+	// Derived “active tracks” for player and list
+	const tracks = useMemo(
+		() => (mode === "find" ? findResults : recs),
+		[mode, findResults, recs]
+	);
 
-	const handleReset = () => {
-		// 1) cancel any on-going fetches
-		abortCtrlRef.current.abort();
-
-		// 2) clear everything
-		sessionStorage.removeItem("nt-query");
-		setQuery(null);
-		setRecs([]);
-		setCurrentIndex(0);
-		prefsRef.current = {};
-		setLoading(false);
-		setPrefetching(false);
-
-		// 3) new controller for next session
-		abortCtrlRef.current = new AbortController();
-	};
-
-	const handleSubmit = async (newQuery) => {
-		sessionStorage.setItem("nt-query", JSON.stringify(newQuery));
-		setQuery(newQuery);
-		prefsRef.current = newQuery.preferences || {};
-
-		setLoading(true);
+	// submit recommendation flow
+	const handleRecommend = async (payload) => {
 		try {
+			setLoading(true);
+			setMode("recommend");
+			setFindResults([]); // clear other mode
+			setFindReq(null);
+
+			abortRef.current?.abort();
+			const ctrl = new AbortController();
+			abortRef.current = ctrl;
+
 			const resp = await fetch(`${API_BASE_URL}/recommend`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(newQuery),
-				signal: abortCtrlRef.current.signal, // ← wire up abort
+				body: JSON.stringify(payload),
+				signal: ctrl.signal,
 			});
-			if (!resp.ok) throw new Error(`Status ${resp.status}`);
-			const { recommended_tracks } = await resp.json();
-			setRecs(recommended_tracks);
-			setCurrentIndex(0);
-			startPrefetchLoop(recommended_tracks);
-		} catch (err) {
-			if (err.name === "AbortError") {
-				// aborted by reset, no need to toast
-			} else {
-				console.error("Initial fetch error:", err);
-				toast.error("Failed to fetch recommendations.");
-				handleReset();
+
+			if (!resp.ok) {
+				throw new Error("Failed to get recommendations");
 			}
+			const data = await resp.json();
+			setQuery(payload);
+			setRecs(data.recommended_tracks || []);
+			setCurrentIndex(0);
+			setPlaying(true);
+		} catch (e) {
+			if (e.name !== "AbortError") toast.error(e.message || "Error");
 		} finally {
 			setLoading(false);
 		}
 	};
 
-	const startPrefetchLoop = (batch) => {
-		setPrefetching(true);
-		(async function loop(lastBatch) {
-			const seeds = lastBatch.slice(-3).map((t) => ({
-				title: t.title,
-				artist: t.artist,
-			}));
-			if (!seeds.length) {
-				setPrefetching(false);
-				return;
-			}
+	// find-songs flow
+	const handleFind = async (body) => {
+		try {
+			setFindLoading(true);
+			setMode("find");
+			setRecs([]); // clear other mode
+			setQuery(null);
 
-			const payload = { track_ids: seeds, preferences: prefsRef.current };
-			try {
-				const resp = await fetch(`${API_BASE_URL}/recommend`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(payload),
-					signal: abortCtrlRef.current.signal, // wiring up abort
-				});
-				if (!resp.ok) throw new Error(`Status ${resp.status}`);
-				const { recommended_tracks: nextBatch } = await resp.json();
-				if (!nextBatch.length) {
-					setPrefetching(false);
-					return;
-				}
-				setRecs((old) => [...old, ...nextBatch]);
-				await loop(nextBatch);
-			} catch (err) {
-				if (err.name !== "AbortError") {
-					console.error("Prefetch loop error:", err);
-				}
-				setPrefetching(false);
-			}
-		})(batch);
+			const resp = await fetch(`${API_BASE_URL}/find-tracks`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+			if (!resp.ok) throw new Error("Find tracks failed");
+
+			const data = await resp.json();
+			setFindReq({
+				title: body.title,
+				artist: body.artist,
+				language: body.language,
+			});
+			setFindResults(data.results || []);
+			setFindPage(1);
+			setCurrentIndex(0);
+			setPlaying(true);
+		} catch (e) {
+			toast.error(e.message || "Error");
+		} finally {
+			setFindLoading(false);
+		}
 	};
 
-	const handleNext = () => {
-		if (currentIndex < recs.length - 1) setCurrentIndex((i) => i + 1);
+	const handleFindMore = async () => {
+		if (!findReq) return;
+		const nextPage = findPage + 1;
+		try {
+			setFindLoading(true);
+			const resp = await fetch(`${API_BASE_URL}/find-tracks`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					...findReq,
+					limit: 10,
+					page: nextPage,
+				}),
+			});
+			if (!resp.ok) throw new Error("Find more failed");
+			const data = await resp.json();
+			const newOnes = (data.results || []).filter(
+				(x) =>
+					!findResults.some(
+						(y) => y.title === x.title && y.artist === x.artist
+					)
+			);
+			setFindResults((prev) => [...prev, ...newOnes]);
+			setFindPage(nextPage);
+			if (tracks.length === 0 && newOnes.length > 0) {
+				setCurrentIndex(0);
+				setPlaying(true);
+			}
+		} catch (e) {
+			toast.error(e.message || "Error");
+		} finally {
+			setFindLoading(false);
+		}
 	};
-	const handlePrev = () => {
-		if (currentIndex > 0) setCurrentIndex((i) => i - 1);
+
+	// current track for player
+	const currentTrack = tracks[currentIndex] || null;
+
+	const pickIndex = (i) => {
+		setCurrentIndex(i);
+		setPlaying(true);
+	};
+
+	const next = () => {
+		if (tracks.length === 0) return;
+		setCurrentIndex((i) => (i + 1 >= tracks.length ? i : i + 1));
+	};
+	const prev = () => {
+		if (tracks.length === 0) return;
+		setCurrentIndex((i) => (i - 1 < 0 ? 0 : i - 1));
+	};
+
+	const handleReset = () => {
+		setMode("idle");
+		setRecs([]);
+		setFindResults([]);
+		setFindReq(null);
+		setCurrentIndex(0);
+		setPlaying(false);
+		setQuery(null);
 	};
 
 	return (
 		<div className="flex flex-col min-h-screen bg-amber-50">
 			<NavBar
 				onReset={handleReset}
-				hasRecs={recs.length > 0}
+				hasRecs={tracks.length > 0}
 				onShowSelections={() => setShowSelections(true)}
 				seedCount={query?.track_ids?.length || 0}
 				query={query}
 			/>
 
-			<SelectionModal
-				isOpen={showSelections}
-				onClose={() => setShowSelections(false)}
-				query={query}
-			/>
+			{/* Top: Recommendation form (unchanged) */}
+			<div className="p-4 lg:p-6">
+				<TrackForm onSubmit={handleRecommend} />
+			</div>
 
+			{/* Main */}
 			<div className="flex flex-1 flex-col lg:flex-row gap-y-0 lg:gap-y-6 lg:gap-x-6 overflow-hidden">
-				{/* Main area */}
+				{/* Player column */}
 				<main className="flex-1 p-4 max-h-fit min-h-60 lg:max-h-full lg:min-h-0 lg:p-6 overflow-auto relative">
-					{loading ? (
-						<div className="absolute inset-0 flex items-center justify-center">
-							<Spinner size={8} role="status" />
-						</div>
-					) : !query ? (
-						<TrackForm onSubmit={handleSubmit} />
-					) : (
-						<>
-							<div className="w-full aspect-video relative">
-								<YouTubePlayer
-									artist={recs[currentIndex]?.artist}
-									title={recs[currentIndex]?.title}
-									onEnded={handleNext}
-								/>
+					<div className="w-full aspect-video relative">
+						{currentTrack ? (
+							<YouTubePlayer
+								track={currentTrack}
+								playing={playing}
+								onEnd={next}
+							/>
+						) : (
+							<div className="w-full h-full bg-white rounded-xl shadow-inner grid place-items-center text-stone-500">
+								No track yet — try “Find Songs” or submit for
+								recommendations.
 							</div>
+						)}
+					</div>
 
-							<div className="flex justify-center space-x-4 mt-4">
-								<button
-									onClick={handlePrev}
-									disabled={currentIndex === 0}
-									className={`w-32 h-10 flex items-center justify-center rounded ${
-										currentIndex === 0
-											? "bg-stone-300 cursor-not-allowed"
-											: "bg-amber-900 text-white hover:bg-amber-800"
-									}`}
-								>
-									◀ Previous
-								</button>
+					<div className="flex justify-center space-x-4 mt-4">
+						<button
+							onClick={prev}
+							disabled={currentIndex === 0}
+							className={`w-32 h-10 flex items-center justify-center rounded ${
+								currentIndex === 0
+									? "bg-stone-300 cursor-not-allowed"
+									: "bg-amber-900 text-white hover:bg-amber-800"
+							}`}
+						>
+							◀ Previous
+						</button>
+						<button
+							onClick={next}
+							disabled={currentIndex >= tracks.length - 1}
+							className={`w-32 h-10 flex items-center justify-center rounded ${
+								currentIndex >= tracks.length - 1
+									? "bg-stone-300 cursor-not-allowed"
+									: "bg-amber-900 text-white hover:bg-amber-800"
+							}`}
+						>
+							Next ▶
+						</button>
+					</div>
+				</main>
 
+				{/* Right sidebar */}
+				<aside className="flex-1 w-full lg:flex-none lg:w-80 bg-white shadow-inner pt-0 px-4 pb-4 lg:p-4 overflow-y-auto">
+					{mode === "find" && findResults.length > 0 ? (
+						<>
+							<ResultsList
+								items={findResults}
+								currentIndex={currentIndex}
+								onPick={pickIndex}
+							/>
+							<div className="mt-4 p-3 rounded border border-dashed text-sm text-stone-700">
+								Still not what you’re looking for?
 								<button
-									onClick={handleNext}
-									disabled={
-										!recs.length ||
-										(currentIndex >= recs.length - 1 &&
-											prefetching)
-									}
-									className={`w-32 h-10 flex items-center justify-center rounded ${
-										currentIndex >= recs.length - 1 &&
-										prefetching
-											? "bg-stone-300 cursor-not-allowed"
-											: "bg-amber-900 text-white hover:bg-amber-800"
-									}`}
+									onClick={handleFindMore}
+									className="ml-2 px-3 py-1.5 rounded bg-amber-200 text-amber-900 hover:bg-amber-300"
+									disabled={findLoading}
 								>
-									{currentIndex >= recs.length - 1 &&
-									prefetching ? (
-										<Spinner size={6} color="text-white" />
-									) : (
-										"Next ▶"
-									)}
+									{findLoading ? "Finding..." : "Find more"}
 								</button>
 							</div>
 						</>
-					)}
-				</main>
-
-				{/* Recommendation list */}
-				<aside className="flex-1 w-full lg:flex-none lg:w-80 bg-white shadow-inner pt-0 px-4 pb-4 lg:p-4 overflow-y-auto">
-					<h2 className="text-xl font-semibold mb-3 text-amber-900">
-						All Recommendations
-					</h2>
-					<ul className="space-y-2">
-						{recs.map((r, i) => (
-							<li
-								key={i}
-								onClick={() => setCurrentIndex(i)}
-								className={`p-2 rounded cursor-pointer transition ${
-									i === currentIndex
-										? "bg-amber-100 font-bold"
-										: "hover:bg-amber-50"
-								}`}
-							>
-								{r.title}{" "}
-								<span className="text-stone-600 text-sm">
-									— {r.artist}
-								</span>
-							</li>
-						))}
-					</ul>
-					{prefetching && (
-						<div className="flex items-center justify-center mt-4 space-x-2">
-							<Spinner size={6} />
-							<span className="text-stone-700 text-sm">
-								Loading more…
-							</span>
-						</div>
+					) : tracks.length > 0 && mode !== "find" ? (
+						<RecommendationList
+							recs={recs}
+							currentIndex={currentIndex}
+							onPick={pickIndex}
+						/>
+					) : (
+						<FindSongsForm
+							onFind={handleFind}
+							loading={findLoading}
+						/>
 					)}
 				</aside>
 			</div>
 
-			<ToastContainer
-				position="top-center"
-				autoClose={2000}
-				hideProgressBar={false}
-				newestOnTop={false}
-				closeOnClick
-				draggable
+			{/* Selections modal (recommendation flow) */}
+			<SelectionModal
+				isOpen={showSelections}
+				onClose={() => setShowSelections(false)}
+				query={query}
 			/>
 		</div>
 	);
