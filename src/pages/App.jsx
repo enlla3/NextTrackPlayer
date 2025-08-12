@@ -122,7 +122,10 @@ export default function App() {
 				onReset={handleReset}
 				hasRecs={recs.length > 0}
 				onShowSelections={() => setShowSelections(true)}
+				seedCount={query?.track_ids?.length || 0}
+				query={query}
 			/>
+
 			<SelectionModal
 				isOpen={showSelections}
 				onClose={() => setShowSelections(false)}
