@@ -26,7 +26,6 @@ export default function FindSongsForm({ onFind, loading = false }) {
 				Forgetting something?{" "}
 				<span className="font-normal">Find here.</span>
 			</h2>
-
 			<div className="text-sm text-stone-600 -mt-1">
 				Enter <strong>title</strong> <em>or</em> <strong>artist</strong>{" "}
 				(not both).
