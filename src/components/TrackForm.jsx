@@ -1,154 +1,167 @@
 import { useState } from "react";
+import { toast } from "react-toastify";
 
-export default function TrackForm({ onSubmit }) {
-	const [tracks, setTracks] = useState([{ title: "", artist: "" }]);
-	const [prefs, setPrefs] = useState({
-		favorite_artists: "",
-		preferred_genres: "",
-		preferred_languages: "",
-		same_artist_only: false, // ← default off
-	});
+export default function TrackForm({ onSubmit, loading = false }) {
+	const [title, setTitle] = useState("");
+	const [artist, setArtist] = useState("");
+	const [seeds, setSeeds] = useState([]);
 
-	const handleTrackChange = (idx, field, val) => {
-		setTracks((prev) => {
-			const next = [...prev];
-			next[idx] = { ...next[idx], [field]: val };
-			return next;
-		});
+	const [favoriteArtists, setFavoriteArtists] = useState("");
+	const [preferredGenres, setPreferredGenres] = useState("");
+	const [preferredLanguages, setPreferredLanguages] = useState("");
+	const [sameArtistOnly, setSameArtistOnly] = useState(false);
+
+	const addSeed = () => {
+		const t = title.trim();
+		const a = artist.trim();
+		if (!t || !a) {
+			toast.error(
+				"Please enter both Title and Artist for previous track before adding another."
+			);
+			return;
+		}
+		const key = (x) =>
+			`${x.artist.toLowerCase()}|||${x.title.toLowerCase()}`;
+		const next = { title: t, artist: a };
+		if (seeds.some((s) => key(s) === key(next))) {
+			toast.info("That track is already added.");
+			return;
+		}
+		setSeeds((prev) => [...prev, next]);
+		setTitle("");
+		setArtist("");
 	};
 
-	const addTrack = () =>
-		setTracks((prev) => [...prev, { title: "", artist: "" }]);
-
-	const removeTrack = (idx) =>
-		setTracks((prev) => prev.filter((_, i) => i !== idx));
-
-	const parseList = (s) =>
-		s
-			.split(",")
-			.map((x) => x.trim())
-			.filter(Boolean);
+	const removeSeed = (i) => {
+		setSeeds((prev) => prev.filter((_, idx) => idx !== i));
+	};
 
 	const handleSubmit = (e) => {
 		e.preventDefault();
+		if (seeds.length === 0) {
+			toast.error(
+				"Please fill in both the Title and Artist fields and click 'Add Track' button."
+			);
+			return;
+		}
+
+		const toList = (s) =>
+			s
+				.split(",")
+				.map((x) => x.trim())
+				.filter(Boolean);
+
 		const payload = {
-			track_ids: tracks.filter((t) => t.title && t.artist),
+			track_ids: seeds,
 			preferences: {
-				favorite_artists: parseList(prefs.favorite_artists),
-				preferred_genres: parseList(prefs.preferred_genres),
-				preferred_languages: parseList(prefs.preferred_languages),
-				same_artist_only: !!prefs.same_artist_only, // ← wired to checkbox
+				favorite_artists: toList(favoriteArtists),
+				preferred_genres: toList(preferredGenres),
+				preferred_languages: toList(preferredLanguages),
+				same_artist_only: !!sameArtistOnly,
 			},
 		};
-		onSubmit(payload);
+
+		onSubmit?.(payload);
 	};
 
 	return (
-		<form onSubmit={handleSubmit} className="space-y-4 max-w-xl mx-auto">
-			{/* Tracks input list */}
-			{tracks.map((t, i) => (
-				<div
-					key={i}
-					className="flex flex-col md:flex-row md:space-x-2 space-y-2 md:space-y-0"
-				>
-					<input
-						className="border p-2 w-full rounded"
-						placeholder="Title"
-						value={t.title}
-						onChange={(e) =>
-							handleTrackChange(i, "title", e.target.value)
-						}
-					/>
-					<input
-						className="border p-2 w-full rounded"
-						placeholder="Artist"
-						value={t.artist}
-						onChange={(e) =>
-							handleTrackChange(i, "artist", e.target.value)
-						}
-					/>
-					{i > 0 && (
-						<button
-							type="button"
-							onClick={() => removeTrack(i)}
-							className="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300"
-							aria-label={`Remove track ${i + 1}`}
+		<form onSubmit={handleSubmit} className="space-y-4">
+			{/* Seeds chips (render only when there are seeds) */}
+			{seeds.length > 0 && (
+				<div className="flex flex-wrap gap-2">
+					{seeds.map((s, i) => (
+						<span
+							key={`${s.title}-${s.artist}-${i}`}
+							className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-200"
+							title={`${s.title} — ${s.artist}`}
 						>
-							Remove
-						</button>
-					)}
+							<span className="font-medium">{s.title}</span>
+							<span className="text-stone-600 text-sm">
+								— {s.artist}
+							</span>
+							<button
+								type="button"
+								onClick={() => removeSeed(i)}
+								className="ml-1 rounded-full px-1.5 py-0.5 hover:bg-amber-200"
+								aria-label={`Remove ${s.title} — ${s.artist}`}
+							>
+								✕
+							</button>
+						</span>
+					))}
 				</div>
-			))}
+			)}
 
-			<div>
+			{/* Title / Artist — full width fields (stacked); they fill the card */}
+			<input
+				className="border p-2 w-full rounded"
+				placeholder="Title"
+				value={title}
+				onChange={(e) => setTitle(e.target.value)}
+				aria-label="Seed title"
+			/>
+			<input
+				className="border p-2 w-full rounded"
+				placeholder="Artist"
+				value={artist}
+				onChange={(e) => setArtist(e.target.value)}
+				aria-label="Seed artist"
+			/>
+
+			<button
+				type="button"
+				onClick={addSeed}
+				className="px-4 py-2 rounded bg-amber-200 text-amber-900 hover:bg-amber-300"
+			>
+				Add Track
+			</button>
+
+			{/* Preferences — full width like Find Songs */}
+			<input
+				className="border p-2 w-full rounded"
+				placeholder="Favorite artists (comma-sep)"
+				value={favoriteArtists}
+				onChange={(e) => setFavoriteArtists(e.target.value)}
+				aria-label="Favorite artists"
+			/>
+			<input
+				className="border p-2 w-full rounded"
+				placeholder="Preferred genres (comma-sep)"
+				value={preferredGenres}
+				onChange={(e) => setPreferredGenres(e.target.value)}
+				aria-label="Preferred genres"
+			/>
+			<input
+				className="border p-2 w-full rounded"
+				placeholder="Preferred languages (comma-sep)"
+				value={preferredLanguages}
+				onChange={(e) => setPreferredLanguages(e.target.value)}
+				aria-label="Preferred languages"
+			/>
+
+			<label className="flex items-center gap-2 select-none">
+				<input
+					type="checkbox"
+					className="accent-amber-700"
+					checked={sameArtistOnly}
+					onChange={(e) => setSameArtistOnly(e.target.checked)}
+				/>
+				<span>Same artist only</span>
+			</label>
+
+			<div className="flex justify-start">
 				<button
-					type="button"
-					onClick={addTrack}
-					className="px-4 py-2 rounded bg-amber-200 text-amber-900 hover:bg-amber-300"
+					type="submit"
+					disabled={loading}
+					className={`bg-amber-900 text-white px-4 py-2 rounded ${
+						loading
+							? "opacity-60 cursor-not-allowed"
+							: "hover:bg-amber-800"
+					}`}
 				>
-					Add Track
+					{loading ? "Getting…" : "Get Recommendations"}
 				</button>
 			</div>
-
-			{/* Preferences */}
-			<div className="space-y-2">
-				<input
-					className="border p-2 w-full rounded"
-					placeholder="Favorite artists (comma-sep)"
-					value={prefs.favorite_artists}
-					onChange={(e) =>
-						setPrefs((p) => ({
-							...p,
-							favorite_artists: e.target.value,
-						}))
-					}
-				/>
-				<input
-					className="border p-2 w-full rounded"
-					placeholder="Preferred genres (comma-sep)"
-					value={prefs.preferred_genres}
-					onChange={(e) =>
-						setPrefs((p) => ({
-							...p,
-							preferred_genres: e.target.value,
-						}))
-					}
-				/>
-				<input
-					className="border p-2 w-full rounded"
-					placeholder="Preferred languages (comma-sep)"
-					value={prefs.preferred_languages}
-					onChange={(e) =>
-						setPrefs((p) => ({
-							...p,
-							preferred_languages: e.target.value,
-						}))
-					}
-				/>
-
-				{/* Same-artist checkbox */}
-				<div className="flex items-center space-x-2">
-					<input
-						id="sameArtistOnly"
-						type="checkbox"
-						className="h-4 w-4"
-						checked={!!prefs.same_artist_only}
-						onChange={(e) =>
-							setPrefs((p) => ({
-								...p,
-								same_artist_only: e.target.checked,
-							}))
-						}
-					/>
-					<label htmlFor="sameArtistOnly" className="text-sm">
-						Same artist only
-					</label>
-				</div>
-			</div>
-
-			<button className="bg-amber-900 text-white px-4 py-2 rounded w-full md:w-auto">
-				Get Recommendations
-			</button>
 		</form>
 	);
 }

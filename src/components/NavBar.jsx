@@ -44,7 +44,7 @@ export default function NavBar({
 					>
 						{/* Mobile: icon + badge */}
 						<span className="sm:hidden relative inline-flex">
-							{/* simple list icon (inline SVG, no extra deps) */}
+							{/* list icon  */}
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
 								viewBox="0 0 24 24"

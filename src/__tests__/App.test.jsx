@@ -15,19 +15,18 @@ jest.mock("../components/YouTubePlayer", () => () => (
 	<div data-testid="yt-player">YT</div>
 ));
 
-beforeEach(() => {
-	sessionStorage.clear();
-	// No fake timers — avoids React 19 static-flag internal error
-	global.fetch = jest.fn();
-});
-
-afterEach(() => {
-	jest.resetAllMocks();
-});
-
 describe("App integration - current selections modal", () => {
+	beforeEach(() => {
+		sessionStorage.clear();
+		global.fetch = jest.fn();
+	});
+
+	afterEach(() => {
+		jest.resetAllMocks();
+	});
+
 	it("shows 'My Current Selections' after recommendations arrive and opens the modal", async () => {
-		// First fetch (initial recommendations)
+		// 1) Initial recommendations response (3 tracks)
 		global.fetch
 			.mockResolvedValueOnce({
 				ok: true,
@@ -39,14 +38,15 @@ describe("App integration - current selections modal", () => {
 					],
 				}),
 			})
-			// Prefetch loop: abort quickly
-			.mockRejectedValueOnce(
-				Object.assign(new Error("Abort"), { name: "AbortError" })
-			);
+			// 2) Any subsequent prefetch calls return empty list to end the loop quickly
+			.mockResolvedValue({
+				ok: true,
+				json: async () => ({ recommended_tracks: [] }),
+			});
 
 		render(<App />);
 
-		// Fill the TrackForm
+		// Fill the Get Recommendations form
 		fireEvent.change(screen.getByPlaceholderText("Title"), {
 			target: { value: "SeedSong" },
 		});
@@ -54,30 +54,31 @@ describe("App integration - current selections modal", () => {
 			target: { value: "SeedArtist" },
 		});
 
-		// Prefs (same_artist_only defaults to false via UI)
+		// Preferences (optional)
 		fireEvent.change(
 			screen.getByPlaceholderText("Favorite artists (comma-sep)"),
-			{
-				target: { value: "FavX, FavY" },
-			}
+			{ target: { value: "FavX, FavY" } }
 		);
 		fireEvent.change(
 			screen.getByPlaceholderText("Preferred genres (comma-sep)"),
-			{
-				target: { value: "pop" },
-			}
+			{ target: { value: "pop" } }
 		);
 		fireEvent.change(
 			screen.getByPlaceholderText("Preferred languages (comma-sep)"),
-			{
-				target: { value: "english" },
-			}
+			{ target: { value: "english" } }
 		);
+		// leave "Same artist only" unchecked (default false)
+
+		// Add the seed
+		fireEvent.click(screen.getByRole("button", { name: /add track/i }));
 
 		// Submit
 		fireEvent.click(
 			screen.getByRole("button", { name: /get recommendations/i })
 		);
+
+		// Player should render (YT placeholder)
+		expect(await screen.findByTestId("yt-player")).toBeInTheDocument();
 
 		// Wait for the navbar button to appear
 		const openBtn = await screen.findByRole("button", {
@@ -85,21 +86,21 @@ describe("App integration - current selections modal", () => {
 		});
 		expect(openBtn).toBeInTheDocument();
 
-		// Open modal
+		// Open the modal
 		fireEvent.click(openBtn);
 
-		// Query *inside* the dialog to avoid collisions with the navbar button text
+		// Modal should show with the seeds & preferences we provided
 		const dialog = await screen.findByRole("dialog");
 		expect(dialog).toBeInTheDocument();
 
-		// Confirm modal heading present (scoped)
+		// Check heading
 		expect(
 			within(dialog).getByRole("heading", {
 				name: /my current selections/i,
 			})
 		).toBeInTheDocument();
 
-		// The seed we entered
+		// Tracks list contains our seed
 		expect(within(dialog).getByText("SeedSong")).toBeInTheDocument();
 		expect(within(dialog).getByText("SeedArtist")).toBeInTheDocument();
 
@@ -108,7 +109,7 @@ describe("App integration - current selections modal", () => {
 		expect(within(dialog).getByText("pop")).toBeInTheDocument();
 		expect(within(dialog).getByText("english")).toBeInTheDocument();
 
-		// same_artist_only defaults to 'No' (scoped)
+		// same_artist_only defaults to 'No'
 		expect(within(dialog).getByText("No")).toBeInTheDocument();
 
 		// Close via Close button to ensure wiring

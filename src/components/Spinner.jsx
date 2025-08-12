@@ -1,5 +1,3 @@
-// src/components/Spinner.jsx
-
 const SIZE_MAP = {
 	1: "h-1 w-1",
 	2: "h-2 w-2",

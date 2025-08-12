@@ -22,15 +22,6 @@ export default function FindSongsForm({ onFind, loading = false }) {
 
 	return (
 		<form onSubmit={onSubmit} className="space-y-3">
-			<h2 className="text-xl font-semibold mb-1 text-amber-900">
-				Forgetting something?{" "}
-				<span className="font-normal">Find here.</span>
-			</h2>
-			<div className="text-sm text-stone-600 -mt-1">
-				Enter <strong>title</strong> <em>or</em> <strong>artist</strong>{" "}
-				(not both).
-			</div>
-
 			<input
 				className="border p-2 w-full rounded"
 				placeholder="Title (if you remember it)"

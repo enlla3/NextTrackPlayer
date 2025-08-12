@@ -14,7 +14,7 @@ describe("TrackForm", () => {
 			target: { value: "Me" },
 		});
 
-		// Fill prefs
+		// Preferences
 		fireEvent.change(
 			screen.getByPlaceholderText("Favorite artists (comma-sep)"),
 			{ target: { value: "Me, You" } }
@@ -27,6 +27,9 @@ describe("TrackForm", () => {
 			screen.getByPlaceholderText("Preferred languages (comma-sep)"),
 			{ target: { value: "english" } }
 		);
+
+		// Add the seed
+		fireEvent.click(screen.getByRole("button", { name: /add track/i }));
 
 		// Submit
 		fireEvent.click(
@@ -50,15 +53,17 @@ describe("TrackForm", () => {
 
 		// Track
 		fireEvent.change(screen.getByPlaceholderText("Title"), {
-			target: { value: "Blinding Lights" },
+			target: { value: "Only You" },
 		});
 		fireEvent.change(screen.getByPlaceholderText("Artist"), {
-			target: { value: "The Weeknd" },
+			target: { value: "A-ha" },
 		});
 
-		// Tick the checkbox
-		const cb = screen.getByLabelText(/same artist only/i);
-		fireEvent.click(cb);
+		// Tick checkbox
+		fireEvent.click(screen.getByLabelText(/same artist only/i));
+
+		// Add the seed
+		fireEvent.click(screen.getByRole("button", { name: /add track/i }));
 
 		// Submit
 		fireEvent.click(
