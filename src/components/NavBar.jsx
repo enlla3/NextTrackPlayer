@@ -1,9 +1,9 @@
 import logo from "../assets/logo.png";
 
-export default function NavBar({ onReset }) {
+export default function NavBar({ onReset, hasRecs = false, onShowSelections }) {
 	return (
 		<nav className="bg-amber-200 text-amber-900 p-4 shadow flex items-center justify-between">
-			{/* Logo and Title */}
+			{/* Left: logo + title */}
 			<div className="flex items-center space-x-3">
 				<img
 					src={logo}
@@ -15,13 +15,27 @@ export default function NavBar({ onReset }) {
 				</span>
 			</div>
 
-			{/* Reset Button */}
-			<button
-				onClick={onReset}
-				className="bg-amber-900 text-white px-4 py-2 rounded hover:bg-amber-800 whitespace-nowrap"
-			>
-				Reset
-			</button>
+			{/* Right: actions */}
+			<div className="flex items-center space-x-2">
+				{hasRecs && (
+					<button
+						type="button"
+						onClick={onShowSelections}
+						className="px-3 py-2 rounded bg-white text-amber-900 border border-amber-300 hover:bg-amber-50"
+					>
+						My Current Selections
+					</button>
+				)}
+				{onReset && (
+					<button
+						type="button"
+						onClick={onReset}
+						className="px-3 py-2 rounded bg-amber-900 text-white hover:opacity-90"
+					>
+						Reset
+					</button>
+				)}
+			</div>
 		</nav>
 	);
 }

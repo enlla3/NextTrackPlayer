@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ToastContainer, toast } from "react-toastify";
 import NavBar from "../components/NavBar";
+import SelectionModal from "../components/SelectionModal";
 import Spinner from "../components/Spinner";
 import TrackForm from "../components/TrackForm";
 import YouTubePlayer from "../components/YouTubePlayer";
@@ -15,6 +16,7 @@ export default function App() {
 	const [currentIndex, setCurrentIndex] = useState(0);
 	const [loading, setLoading] = useState(false);
 	const [prefetching, setPrefetching] = useState(false);
+	const [showSelections, setShowSelections] = useState(false);
 
 	// retain preferences across looping prefetches
 	const prefsRef = useRef(query?.preferences || {});
@@ -116,7 +118,16 @@ export default function App() {
 
 	return (
 		<div className="flex flex-col min-h-screen bg-amber-50">
-			<NavBar onReset={handleReset} />
+			<NavBar
+				onReset={handleReset}
+				hasRecs={recs.length > 0}
+				onShowSelections={() => setShowSelections(true)}
+			/>
+			<SelectionModal
+				isOpen={showSelections}
+				onClose={() => setShowSelections(false)}
+				query={query}
+			/>
 
 			<div className="flex flex-1 flex-col lg:flex-row gap-y-0 lg:gap-y-6 lg:gap-x-6 overflow-hidden">
 				{/* Main area */}
