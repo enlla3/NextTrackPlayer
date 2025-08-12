@@ -1,20 +1,36 @@
-export default function RecommendationList({ recs, currentIndex, onPick }) {
+export default function RecommendationList({
+	recs = [],
+	currentIndex = 0,
+	onPick,
+}) {
 	return (
-		<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-			{recs.slice(0, 3).map((r, i) => (
-				<div
-					key={i}
-					onClick={() => onPick(i)}
-					className={`p-4 border rounded cursor-pointer transition ${
-						i === currentIndex
-							? "border-amber-900 bg-amber-100 shadow"
-							: "hover:shadow-lg"
-					}`}
-				>
-					<p className="font-semibold">{r.title}</p>
-					<p className="text-sm text-gray-600">{r.artist}</p>
-				</div>
-			))}
+		<div>
+			<h2 className="text-xl font-semibold mb-3 text-amber-900">
+				All Recommendations
+			</h2>
+			{recs.length === 0 ? (
+				<p className="text-stone-600">No recommendations yet.</p>
+			) : (
+				<ul className="space-y-2">
+					{recs.map((t, i) => (
+						<li
+							key={`${t.title}-${t.artist}-${i}`}
+							onClick={() => onPick && onPick(i)}
+							className={[
+								"p-2 rounded cursor-pointer transition",
+								i === currentIndex
+									? "bg-amber-100 font-bold"
+									: "hover:bg-amber-50",
+							].join(" ")}
+						>
+							{t.title}{" "}
+							<span className="text-stone-600 text-sm">
+								— {t.artist}
+							</span>
+						</li>
+					))}
+				</ul>
+			)}
 		</div>
 	);
 }

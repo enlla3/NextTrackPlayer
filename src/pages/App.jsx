@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import FindSongsForm from "../components/FindSongsForm";
 import NavBar from "../components/NavBar";
@@ -8,6 +8,7 @@ import Spinner from "../components/Spinner";
 import TrackForm from "../components/TrackForm";
 import YouTubePlayer from "../components/YouTubePlayer";
 import { API_BASE_URL } from "../config";
+import { prefetchVideoIds } from "../lib/videoCache";
 
 export default function App() {
 	// screens: 'home' (two forms), 'player' (player + list)
@@ -39,6 +40,21 @@ export default function App() {
 		[mode, recs, findResults]
 	);
 	const currentTrack = tracks[currentIndex] || null;
+
+	// ...
+	useEffect(() => {
+		async function fetcher(title, artist) {
+			const q = `${title} ${artist} official audio`;
+			const url = `${API_BASE_URL}/yt-search?q=${encodeURIComponent(q)}`;
+			const resp = await fetch(url);
+			if (!resp.ok) throw new Error("yt-search failed");
+			const data = await resp.json();
+			return data?.videoId ?? null;
+		}
+		if (tracks?.length) {
+			prefetchVideoIds(tracks, fetcher);
+		}
+	}, [tracks]);
 
 	// ===== Recommendation flow =====
 	const handleRecommend = async (payload) => {
